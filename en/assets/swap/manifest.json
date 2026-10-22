@@ -1,0 +1,11 @@
+{
+  "widths": [
+    1280,
+    768
+  ],
+  "clips": {
+    "plough-out": 60,
+    "spray-in": 60,
+    "spray-out": 60
+  }
+}

@@ -1,0 +1,628 @@
+<meta charset="utf-8">
+<title>Mast Sensor Tilt</title>
+<meta name="robots" content="noindex, nofollow">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+  /* Layout: one instrument up top (side view at true 1:1 scale, top view under it, readouts beside), then the
+     distance chart, the meaning of each angle, and one card per obstacle. Same tokens as the Oran sims. */
+  :root {
+    --ground: #e9ede4; --panel: #f7f9f3; --ink: #17201a; --muted: #56625a; --line: rgba(23, 32, 26, 0.14);
+    --accent: #c98a00; --accent-soft: rgba(201, 138, 0, 0.16); --on-accent: #1c1500;
+    --ok: #3fa34d; --ok-soft: rgba(63, 163, 77, 0.14); --bad: #c2412d; --bad-soft: rgba(194, 65, 45, 0.13);
+    --lidar: #2a8f86; --lidar-soft: rgba(42, 143, 134, 0.16); --soil: rgba(120, 92, 52, 0.18);
+    --stage: #eef0ea;
+    --display: "Barlow Condensed", "Arial Narrow", "Roboto Condensed", sans-serif;
+    --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --ground: #0e1310; --panel: #141a16; --ink: #e7ede5; --muted: #9ba89f; --line: rgba(231, 237, 229, 0.14);
+      --accent: #f0b429; --accent-soft: rgba(240, 180, 41, 0.18); --on-accent: #1c1500;
+      --ok: #5cc06a; --ok-soft: rgba(92, 192, 106, 0.16); --bad: #ef6b55; --bad-soft: rgba(239, 107, 85, 0.16);
+      --lidar: #4cc2b6; --lidar-soft: rgba(76, 194, 182, 0.18); --soil: rgba(190, 150, 95, 0.16);
+      --stage: #111713;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --ground: #0e1310; --panel: #141a16; --ink: #e7ede5; --muted: #9ba89f; --line: rgba(231, 237, 229, 0.14);
+    --accent: #f0b429; --accent-soft: rgba(240, 180, 41, 0.18); --on-accent: #1c1500;
+    --ok: #5cc06a; --ok-soft: rgba(92, 192, 106, 0.16); --bad: #ef6b55; --bad-soft: rgba(239, 107, 85, 0.16);
+    --lidar: #4cc2b6; --lidar-soft: rgba(76, 194, 182, 0.18); --soil: rgba(190, 150, 95, 0.16);
+    --stage: #111713;
+  }
+  * { box-sizing: border-box; }
+  body { background: var(--ground); color: var(--ink); font-family: var(--body); font-size: 15px; line-height: 1.5; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding-inline: 20px; }
+  .kicker { font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  h1, h2, h3 { font-family: var(--display); font-weight: 700; text-transform: uppercase; letter-spacing: 0.02em; line-height: 1.02; margin: 0; text-wrap: balance; }
+  h1 { font-size: clamp(34px, 5vw, 54px); }
+  h2 { font-size: 28px; }
+  h3 { font-size: 19px; letter-spacing: 0.04em; }
+  p { margin: 0; }
+  .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  header.hero { display: grid; gap: 10px; padding-block: 28px 18px; }
+  header.hero p { max-width: 68ch; color: var(--muted); font-size: 16px; }
+
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; }
+  section { margin-block: 18px; }
+
+  /* The instrument. */
+  .inst { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 0; overflow: hidden; }
+  .ctrl { padding: 16px; display: grid; gap: 14px; align-content: start; border-right: 1px solid var(--line); }
+  .grp { display: grid; gap: 7px; }
+  .grp-h { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .grp-h label, .grp-h .t { font-family: var(--display); font-weight: 600; font-size: 15px; letter-spacing: 0.05em; text-transform: uppercase; }
+  .grp-h output { font-family: var(--mono); font-size: 13px; font-variant-numeric: tabular-nums; }
+  .seg { display: grid; grid-template-columns: repeat(2, 1fr); gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 12px; background: var(--ground); }
+  .seg.c3 { grid-template-columns: repeat(3, 1fr); }
+  .seg.c4 { grid-template-columns: repeat(4, 1fr); }
+  .seg button {
+    border: 0; background: none; color: var(--ink); cursor: pointer; border-radius: 9px; padding: 6px 4px;
+    font-family: var(--display); font-weight: 600; font-size: 14px; letter-spacing: 0.03em; text-transform: uppercase;
+  }
+  .seg button[aria-pressed="true"] { background: var(--ink); color: var(--panel); }
+  .seg button.alt { box-shadow: inset 0 0 0 1px var(--muted); }
+  .seg button:focus-visible, input:focus-visible, .obs-card:focus-visible, .chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .famlab { font-size: 11.5px; color: var(--muted); margin-bottom: -3px; }
+  input[type="range"] { -webkit-appearance: none; appearance: none; width: 100%; height: 20px; background: none; margin: 0; cursor: pointer; }
+  input[type="range"]::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: linear-gradient(to right, var(--accent) var(--p, 50%), var(--line) var(--p, 50%)); }
+  input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; margin-top: -6px; border-radius: 50%; background: var(--panel); border: 2px solid var(--accent); }
+  input[type="range"]::-moz-range-track { height: 4px; border-radius: 2px; background: var(--line); }
+  input[type="range"]::-moz-range-progress { height: 4px; border-radius: 2px; background: var(--accent); }
+  input[type="range"]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 50%; background: var(--panel); border: 2px solid var(--accent); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { border: 1px solid var(--line); background: var(--ground); color: var(--ink); border-radius: 999px; padding: 3px 10px; font-size: 12px; cursor: pointer; font-family: var(--body); }
+  .chip:hover { border-color: var(--accent); }
+  .chk { display: flex; gap: 8px; align-items: center; font-size: 13px; cursor: pointer; }
+  .chk input { accent-color: var(--accent); width: 15px; height: 15px; margin: 0; }
+  .chk[aria-disabled="true"] { opacity: 0.45; }
+
+  .views { display: grid; min-width: 0; }
+  .view { position: relative; background: var(--stage); }
+  .view + .view { border-top: 1px solid var(--line); }
+  .view .vt { position: absolute; left: 12px; top: 8px; pointer-events: none; }
+  canvas { display: block; width: 100%; }
+  #side { height: 360px; }
+  #top { height: 170px; }
+  .tiles { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); border-top: 1px solid var(--line); background: var(--panel); }
+  .tile { padding: 10px 12px; display: grid; gap: 2px; align-content: start; min-width: 0; }
+  .tile + .tile { border-left: 1px solid var(--line); }
+  .tile span { font-size: 11.5px; color: var(--muted); }
+  .tile b { font-family: var(--mono); font-weight: 500; font-size: 16px; font-variant-numeric: tabular-nums; }
+  .tile small { font-size: 11.5px; color: var(--muted); line-height: 1.35; }
+  .verdict { display: inline-flex; align-items: center; gap: 7px; font-family: var(--display); font-weight: 600; font-size: 16px; letter-spacing: 0.03em; text-transform: uppercase; }
+  .verdict i { width: 9px; height: 9px; border-radius: 50%; background: var(--ok); flex: none; }
+  .verdict[data-k="warn"] i { background: var(--accent); } .verdict[data-k="bad"] i { background: var(--bad); }
+
+  /* Chart. */
+  .chart { padding: 14px 16px 10px; display: grid; gap: 8px; }
+  .chart-h { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: baseline; }
+  .legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: var(--muted); margin-left: auto; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend i { width: 14px; height: 3px; border-radius: 2px; }
+  #chart { height: 220px; }
+
+  /* Angles explained. */
+  .terms { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
+  .term { padding: 12px 14px; display: grid; gap: 6px; align-content: start; }
+  .term p { font-size: 13.5px; color: var(--muted); }
+  .term code { font-family: var(--mono); font-size: 12.5px; color: var(--ink); background: var(--ground); border: 1px solid var(--line); border-radius: 6px; padding: 3px 7px; display: block; white-space: normal; overflow-wrap: anywhere; }
+  .term .ex { font-size: 12.5px; color: var(--ink); }
+
+  /* Obstacles. */
+  .sec-h { display: grid; gap: 4px; }
+  .sec-h p { color: var(--muted); max-width: 72ch; }
+  .obs { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 10px; margin-top: 12px; }
+  .obs-card { padding: 14px; display: grid; gap: 10px; align-content: start; cursor: pointer; text-align: left; color: var(--ink); font: inherit; }
+  .obs-card:hover { border-color: var(--accent); }
+  .obs-card[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  .obs-card .sz { font-size: 12px; color: var(--muted); }
+  .row2 { display: grid; gap: 6px; }
+  .sens { display: grid; grid-template-columns: 64px 1fr; gap: 8px; align-items: start; font-size: 13px; }
+  .sens > b { font-family: var(--display); font-weight: 600; font-size: 14px; letter-spacing: 0.04em; text-transform: uppercase; padding-top: 1px; }
+  .sens .r { color: var(--accent); } .sens .l { color: var(--lidar); }
+  .pill { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 12px; border-radius: 999px; padding: 1px 8px; background: var(--ok-soft); color: var(--ink); margin-bottom: 3px; }
+  .pill[data-k="warn"] { background: var(--accent-soft); } .pill[data-k="bad"] { background: var(--bad-soft); }
+  .pill i { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
+  .pill[data-k="warn"] i { background: var(--accent); } .pill[data-k="bad"] i { background: var(--bad); }
+  .sens p { color: var(--muted); font-size: 13px; }
+
+  footer { padding-block: 10px 40px; color: var(--muted); font-size: 13px; display: grid; gap: 6px; }
+  footer p { max-width: 90ch; }
+
+  @media (max-width: 1000px) {
+    .inst { grid-template-columns: 1fr; }
+    .ctrl { border-right: 0; border-bottom: 1px solid var(--line); grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .tile + .tile { border-left: 0; }
+    .tile { border-top: 1px solid var(--line); }
+    .terms { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (max-width: 620px) {
+    .wrap { padding-inline: 16px; }
+    .ctrl { grid-template-columns: 1fr; }
+    #side { height: 300px; }
+    .terms { grid-template-columns: 1fr; }
+    .obs { grid-template-columns: 1fr; }
+    .legend { margin-left: 0; }
+  }
+</style>
+
+<header class="wrap hero">
+  <div class="kicker">Oran · physics of the mast sensors</div>
+  <h1>What tilt changes for radar and LiDAR</h1>
+  <p>A sensor looks through a wedge: a vertical field of a few tens of degrees about its axis. Tilt turns that wedge down; it doesn't widen it. Move the sliders and watch where the bottom edge meets the ground, how far the top edge reaches, and how much of each obstacle the sensor actually takes in. The side view is drawn at true 1:1 scale, so the angles are real.</p>
+</header>
+
+<main class="wrap">
+  <section class="card inst" aria-label="Instrument: sensor, tilt and obstacle">
+    <div class="ctrl">
+      <div class="grp">
+        <div class="grp-h"><span class="t">Sensor</span></div>
+        <div class="famlab">Radar</div>
+        <div class="seg c3" id="s-radar" role="group" aria-label="Radar"></div>
+        <div class="famlab">LiDAR</div>
+        <div class="seg c4" id="s-lidar" role="group" aria-label="LiDAR"></div>
+      </div>
+      <div class="grp">
+        <div class="grp-h"><label for="in-h">Sensor height</label><output id="o-h"></output></div>
+        <input type="range" id="in-h" min="0.8" max="3.0" step="0.05" value="1.6">
+        <div class="chips"><button class="chip" type="button" data-h="1.6">1.6 m · front of the mast</button><button class="chip" type="button" data-h="2.45">2.45 m · top of the mast</button></div>
+      </div>
+      <div class="grp">
+        <div class="grp-h"><label for="in-t">Tilted down</label><output id="o-t"></output></div>
+        <input type="range" id="in-t" min="0" max="25" step="1" value="5">
+      </div>
+      <div class="grp">
+        <div class="grp-h"><span class="t">Obstacle</span></div>
+        <div class="seg c4" id="s-obs" role="group" aria-label="Obstacle"></div>
+      </div>
+      <div class="grp">
+        <div class="grp-h"><label for="in-r">Obstacle distance</label><output id="o-r"></output></div>
+        <input type="range" id="in-r" min="1" max="40" step="0.5" value="12">
+        <label class="chk" id="mv-l"><input type="checkbox" id="in-mv"> The obstacle moves (radar picks it out by its speed)</label>
+      </div>
+    </div>
+    <div class="views">
+      <div class="view"><div class="vt kicker" id="vt-side">Side view · 1:1 scale</div><canvas id="side" aria-label="Side view: mast, tilt, the sensor's field and the obstacle"></canvas></div>
+      <div class="view"><div class="vt kicker" id="vt-top">From above · width of one cell</div><canvas id="top" aria-label="From above: the sensor's cells across and the obstacle"></canvas></div>
+      <div class="tiles">
+        <div class="tile"><span>Sees the ground from</span><b id="t-g">–</b><small id="t-g2"></small></div>
+        <div class="tile"><span id="t-u-l">Top edge at the obstacle</span><b id="t-u">–</b><small id="t-u2"></small></div>
+        <div class="tile"><span id="t-a-l">Takes in of the obstacle</span><b id="t-a">–</b><small id="t-a2"></small></div>
+        <div class="tile"><span id="t-s-l">Signal</span><b id="t-s">–</b><small id="t-s2"></small></div>
+        <div class="tile"><span>Verdict at 6 km/h</span><div class="verdict" id="t-v" data-k="ok"><i></i><span>–</span></div><small id="t-v2"></small></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card chart" aria-label="How the signal changes with distance">
+    <div class="chart-h">
+      <h3 id="ch-t">How it changes with distance</h3>
+      <div class="legend" id="ch-l"></div>
+    </div>
+    <canvas id="chart" aria-label="Signal or points on the obstacle against distance, with the threshold and the stop and decision distances"></canvas>
+  </section>
+
+  <section>
+    <div class="sec-h"><div class="kicker">Glossary</div><h2>What the degrees mean</h2><p>The examples below are worked from the settings above.</p></div>
+    <div class="terms" id="terms"></div>
+  </section>
+
+  <section>
+    <div class="sec-h"><div class="kicker">Every obstacle in the simulator</div><h2>Who sees what</h2>
+      <p>For the chosen radar and the chosen LiDAR, at this height and this tilt: over what range of distance the obstacle is in view, and whether that is enough for the machine to stop in time at 6 km/h (decide by 6 m, stop within 3 m). Click a card to put it in the instrument above.</p></div>
+    <div class="obs" id="obs"></div>
+  </section>
+
+  <footer>
+    <p>The numbers are the simulator's, except the LiDAR fields, which come from the repo (RES-013): the Airy 96 hangs upside down, 0° to −90°, as DA-006 plans; JT128 −4.5° to +90°; Mid-360 −7° to +52°, a random scan; JT16 ±20° in 16 rows. Radar: the return falls with the fourth power of distance and is calibrated so a man is seen out to each unit's range, the radar sim's (tractor-final RES-043 and RES-045): the maker's range on a person where one is printed, TI's range equation on a stated chirp for the TI boards, or a maker's range on a car or a pedestrian moved to a standing adult. Three figures are assumed: the SR75's cell width and range on a man, and the O-79's range on a man. Hover a radar for its figures. A still obstacle must be at least three times the threshold to stand out from the ground; a moving one the radar picks out by its speed. LiDAR: the return falls with the square of distance; an obstacle counts once at least three points land on it. Holes have sloping walls; radar gets its return from the far wall, LiDAR from points more than 15 cm below the surface.</p>
+    <p>Simplified: the beam is equally strong across the whole field (a real antenna is strongest on its axis), the ground is flat, the crop does not exist for the radar, the mast stands at the very front of the machine, and the height measurement of the ARS 548, the Hugin D1 and the DRVEGRD 169 is not modelled. The ARS 408's far beam (18° to 250 m) is not drawn.</p>
+  </footer>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const D2R = Math.PI / 180;
+const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+const fmt = (x, d = 1) => (Number.isFinite(x) ? x.toFixed(d) : "–");
+const smooth = (t) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
+
+// ---- Sensors (the simulator's radars, tractor-final RES-043 and RES-045; LiDAR fields from RES-013).
+const DEV = {
+  iwr: { kind: "radar", name: "TI IWR6843ISK", short: "IWR6843ISK", el: 30, az: 120, azRes: 15, man: 23, rMax: 24.6, note: "60 GHz · 15° cells · the bench chirp · no height" },
+  ods: { kind: "radar", name: "TI IWR6843ISK-ODS", short: "6843 ODS", el: 120, az: 120, azRes: 29, man: 12, rMax: 24.6, note: "60 GHz, wide antenna · 29° cells · a man to TI's 12 m · measures height (not modelled here)" },
+  aop: { kind: "radar", name: "TI IWR6843AOPEVM", short: "6843 AOP", el: 120, az: 120, azRes: 29, man: 18.3, rMax: 24.6, note: "60 GHz · 29° cells · measures height (not modelled here)" },
+  iwrl: { kind: "radar", name: "TI IWRL6432BOOST", short: "IWRL6432", el: 80, az: 120, azRes: 29, man: 20.3, rMax: 10, note: "60 GHz · 29° cells · TI's chirp reaches 10 m · measures height (not modelled here)" },
+  awr18: { kind: "radar", name: "TI AWR1843BOOST", short: "AWR1843", el: 40, az: 100, azRes: 15, man: 22.5, rMax: 9.02, note: "77 GHz · 15° cells · TI's driver chirp reaches 9 m · no height" },
+  awr: { kind: "radar", name: "TI AWR2944EVM", short: "AWR2944", el: 10, az: 90, azRes: 9.5, man: 48, rMax: 50, note: "77 GHz · 9.5° cells · TI's long-range profile · no height" },
+  sr75: { kind: "radar", name: "Nanoradar SR75", short: "SR75", el: 30, az: 120, azRes: 14.3, man: 40, rMax: 40, note: "77 GHz · 14.3° cells and a man to 40 m, both assumed · no height" },
+  o79: { kind: "radar", name: "Ainstein O-79", short: "O-79", el: 60, az: 90, azRes: 6.2, man: 11, rMax: 20, note: "IP69K, an object list · 6.2° cells · a man to 11 m, assumed · no height" },
+  ars408: { kind: "radar", name: "Continental ARS 408-21", short: "ARS 408", el: 20, az: 120, azRes: 3.2, man: 68, rMax: 60, note: "77 GHz, 2D · 3.2° cells at boresight · no height" },
+  drv169: { kind: "radar", name: "smartmicro DRVEGRD 169", short: "DRVEGRD 169", el: 15, az: 130, azRes: 8, man: 21.2, rMax: 56, note: "77 GHz, on the 24 V rail · 8° cells, announced · measures height (not modelled here)" },
+  hugin: { kind: "radar", name: "Sensrad Hugin D1", short: "Hugin D1", el: 30, az: 100, azRes: 1.25, man: 220, rMax: 60, note: "77 GHz, 4D imaging · 1.25° cells · measures height in 1.5° cells (not modelled here)" },
+  ars: { kind: "radar", name: "Aumovio ARS 548", short: "ARS 548", el: 28, az: 100, azRes: 1.2, man: 205, rMax: 60, note: "77 GHz · 1.2° beam at boresight · measures height (not modelled here)" },
+  airy: { kind: "lidar", name: "RoboSense Airy 96", short: "Airy 96", elMin: -90, elMax: 0, rows: 96, azRes: 0.4, r10: 30, rMax: 70, note: "96 rows 0.95° apart · hung upside down (0° to −90°)" },
+  mid: { kind: "lidar", name: "Livox Mid-360", short: "Mid-360", elMin: -7, elMax: 52, random: true, rate: 200000, hz: 10, r10: 40, rMax: 60, note: "random scan · −7° to +52°" },
+  jt16: { kind: "lidar", name: "Hesai JT16", short: "JT16", elMin: -20, elMax: 20, rows: 16, azRes: 1.2, r10: 30, rMax: 60, note: "16 rows 2.67° apart · ±20°" },
+  jt128: { kind: "lidar", name: "Hesai JT128", short: "JT128", elMin: -4.5, elMax: 90, rows: 128, azRes: 0.4, r10: 40, rMax: 70, note: "128 rows 0.74° apart · −4.5° to +90°" },
+};
+// ---- Obstacles. seg = [bottom, top, width facing the sensor, radar reflectivity, LiDAR reflectivity].
+const OBS = {
+  man: { name: "Man", sz: "0.5 m wide, 1.76 m tall", seg: [[0, 1.5, 0.5, 0.5, 0.4], [1.5, 1.76, 0.26, 0.5, 0.4]], len: 0.3, moves: true },
+  deer: { name: "Deer", sz: "1.25 m at the shoulder, 1.4 m long, side on", seg: [[0, 0.66, 0.32, 0.5, 0.3], [0.66, 1.25, 1.4, 0.5, 0.3], [1.25, 1.5, 0.25, 0.5, 0.3]], len: 1.4, moves: true },
+  dog: { name: "Dog", sz: "0.5 m at the shoulder", seg: [[0, 0.28, 0.13, 0.5, 0.3], [0.28, 0.53, 0.59, 0.5, 0.3], [0.53, 0.63, 0.1, 0.5, 0.3]], len: 0.6, moves: true },
+  tree: { name: "Tree", sz: "0.4 m trunk, 4 m crown from 2.4 to 6 m", seg: [[0, 2.4, 0.4, 2.0, 0.2], [2.4, 6.0, 4.0, 0.3, 0.3]], len: 0.4, crownFrom: 2.4 },
+  hole: { name: "Hole", sz: "0.9 m across, 0.4 m deep, sloping walls", hole: { L: 0.9, W: 0.9, d: 0.4, flat: 0.3 } },
+  ditch: { name: "Ditch", sz: "2.6 m wide, 0.9 m deep, across the whole pass", hole: { L: 2.6, W: 7, d: 0.9, flat: 0.25 } },
+  dust: { name: "Dust", sz: "a plume 10 m long, 3 m tall", dust: { L: 10, H: 3 } },
+};
+const CLEAR_H = 2.3, STOP = 3.0, DECIDE = 6.0, SIG_MAN = 0.32;
+
+const st = { show: "radar", radar: "iwr", lidar: "airy", h: 1.6, tilt: 5, obs: "man", r: 12, moving: false };
+
+// ---- Geometry of the view.
+function edges(d) {
+  if (d.kind === "radar") return { lo: -d.el / 2 - st.tilt, hi: d.el / 2 - st.tilt };
+  return { lo: d.elMin - st.tilt, hi: Math.min(d.elMax, 89) - st.tilt };
+}
+const groundFrom = (lo, h) => (lo >= 0 ? Infinity : h / Math.tan(-lo * D2R));
+function lidarRows(d) {
+  if (d.random) return null;
+  const rs = (d.elMax - d.elMin) / (d.rows - 1), out = [];
+  for (let k = 0; k < d.rows; k++) out.push(d.elMin + k * rs - st.tilt);
+  return out;
+}
+// Mid-360: no rows, a density of points per square radian.
+const density = (d) => (d.rate / d.hz) / (2 * Math.PI * ((d.elMax - d.elMin) * D2R));
+const holeDepthAt = (H, x, r) => { const u = Math.abs(x - r) / (H.L / 2); return u >= 1 ? 0 : H.d * (1 - smooth((u - H.flat) / (1 - H.flat))); };
+
+// ---- What a sensor gets from an obstacle at distance r. Returns { inView, amount, signal, ok, detail }.
+function measure(dk, ok, r, h = st.h) {
+  const d = DEV[dk], o = OBS[ok], E = edges(d);
+  if (r > d.rMax) return { inView: false, sig: 0, ok: false, why: "beyond range" };
+  if (d.kind === "radar") {
+    if (o.dust) return { inView: true, sig: 0, ok: false, pass: true, why: "the wave goes through dust" };
+    const lo = h + r * Math.tan(E.lo * D2R), hi = h + r * Math.tan(E.hi * D2R);
+    if (o.hole) {
+      const H = o.hole, dep = Math.atan(h / r) / D2R;
+      const inBeam = -dep >= E.lo && -dep <= E.hi;
+      const cellW = Math.min(H.W, r * d.azRes * D2R), vis = Math.min(H.d, H.L * Math.tan(dep * D2R)) * 0.7;
+      const sigma = inBeam ? 0.1 * cellW * vis * 0.5 : 0;
+      const snr = (d.man / r) ** 4 * sigma / SIG_MAN;
+      return { inView: inBeam, sig: snr, area: inBeam ? cellW * vis : 0, need: 3, ok: snr >= 3, lo, hi, why: inBeam ? "the far wall" : "the hole is outside the beam" };
+    }
+    let area = 0, sigma = 0, crown = 0;
+    for (const [y0, y1, w, rr] of o.seg) { const ov = Math.max(0, Math.min(y1, hi) - Math.max(y0, lo)); area += w * ov; sigma += w * ov * rr; if (o.crownFrom != null && y0 >= o.crownFrom) crown += w * ov; }
+    const snr = (d.man / r) ** 4 * sigma / SIG_MAN, need = st.moving && o.moves ? 1 : 3;
+    return { inView: area > 0, sig: snr, area, need, ok: area > 0 && snr >= need, lo, hi, crown };
+  }
+  // LiDAR
+  const rows = lidarRows(d), az = (d.azRes || 0.4) * D2R;
+  if (o.dust) {
+    // Rays below 3 m that reach the plume: nearly all stop in it (0.35 per metre), half come back as echoes.
+    const D = o.dust, pStop = 1 - Math.exp(-0.35 * D.L);
+    let rowsIn = 0, pts = 0;
+    if (rows) { for (const a of rows) { const y = h + r * Math.tan(a * D2R); if (y > 0 && y < D.H && (a >= 0 || groundFrom(a, h) > r)) { rowsIn++; pts += (8 / (r * az)) * pStop * 0.5; } } }
+    else { const lo = Math.max(0, h + r * Math.tan(E.lo * D2R)), hi = Math.min(D.H, h + r * Math.tan(E.hi * D2R)); pts = Math.max(0, hi - lo) * 8 / (r * r) * density(d) * pStop * 0.5; }
+    return { inView: pts > 0, sig: pts, rows: rowsIn, need: 3, ok: false, falseStop: pts >= 3, why: "false echoes" };
+  }
+  if (o.hole) {
+    // Fine rays: each that enters the hole and ends at least 15 cm below the surface is a point below ground.
+    const H = o.hole; let pts = 0, rowsIn = 0, rowsDeep = 0;
+    const cast = (a) => { // returns depth reached, or null if the ray never enters the hole
+      if (a >= 0) return null;
+      const g = groundFrom(a, h); if (g < r - H.L / 2 || g > r + H.L / 2) return null;
+      const s = Math.tan(-a * D2R);
+      for (let x = g; x <= r + H.L / 2 + 0.01; x += 0.01) { const y = h - x * s, dz = holeDepthAt(H, x, r); if (y <= -dz) return dz; }
+      return 0;
+    };
+    const cols = H.W / (r * az);
+    if (rows) for (const a of rows) { const z = cast(a); if (z == null) continue; rowsIn++; if (z >= 0.15) { rowsDeep++; pts += cols; } }
+    else { const step = 0.02; for (let a = E.lo; a < Math.min(0, E.hi); a += step) { const z = cast(a); if (z != null && z >= 0.15) pts += density(d) * (step * D2R) * (H.W / r); } }
+    const power = (0.1 / 0.1) * (d.r10 / r) ** 2 >= 1;
+    if (!power) pts = 0;
+    return { inView: rowsIn > 0 || pts > 0, sig: pts, rows: rowsIn, deep: rowsDeep, need: 3, ok: pts >= 3, why: "points below ground" };
+  }
+  let pts = 0, nRows = 0, crownPts = 0;
+  if (rows) {
+    for (const a of rows) {
+      if (a < 0 && groundFrom(a, h) < r) continue;                    // this row lands on the ground first
+      const y = h + r * Math.tan(a * D2R);
+      for (const [y0, y1, w, , lr] of o.seg) if (y >= y0 && y < y1 && (lr / 0.1) * (d.r10 / r) ** 2 >= 1) { nRows++; const c = w / (r * az); pts += c; if (y >= CLEAR_H) crownPts += c; }
+    }
+  } else {
+    const lo = h + r * Math.tan(E.lo * D2R), hi = h + r * Math.tan(E.hi * D2R);
+    for (const [y0, y1, w, , lr] of o.seg) { if ((lr / 0.1) * (d.r10 / r) ** 2 < 1) continue; const ov = Math.max(0, Math.min(y1, hi) - Math.max(y0, lo)); const p = density(d) * w * ov / (r * r); pts += p; if (y0 >= CLEAR_H) crownPts += p; }
+  }
+  const counted = pts - crownPts;                                     // above 2.3 m the machine drives under it
+  return { inView: pts > 0, sig: pts, counted, rows: nRows, need: 3, ok: counted >= 3, crownPts };
+}
+// Where along the approach it is in view, from far to near.
+function span(dk, ok) {
+  let near = null, far = null;
+  for (let r = 0.5; r <= 60; r += 0.25) { const m = measure(dk, ok, r); if (m.ok) { if (near == null) near = r; far = r; } }
+  return { near, far };
+}
+function verdict(dk, ok) {
+  const d = DEV[dk], o = OBS[ok];
+  if (o.dust) {
+    if (d.kind === "radar") return { k: "ok", t: "goes through it", s: "Radar doesn't see dust and doesn't stop for it." };
+    const m = measure(dk, ok, 6);
+    return m.falseStop ? { k: "bad", t: "false stop", s: "A wall of false echoes in the path." } : { k: "warn", t: "few echoes", s: "At 6 m few rays pass through the plume." };
+  }
+  const sp = span(dk, ok);
+  if (sp.far == null) return { k: "bad", t: "doesn't see it", s: "At no distance is there enough signal in the beam." };
+  const range = `sees it from ${fmt(sp.near)} to ${fmt(sp.far)} m`;
+  if (sp.far >= DECIDE) return { k: "ok", t: "in time", s: range, sp };
+  if (sp.far >= STOP) return { k: "warn", t: "late", s: range + " · after the decision point", sp };
+  return { k: "bad", t: "too late", s: range, sp };
+}
+
+// ---- Drawing.
+const tok = {};
+function readTokens() { const cs = getComputedStyle(document.documentElement); for (const k of ["ink", "muted", "line", "accent", "accent-soft", "ok", "bad", "lidar", "lidar-soft", "soil", "stage", "panel", "mono", "body"]) tok[k] = cs.getPropertyValue("--" + k).trim(); }
+function prep(cv) {
+  const dpr = Math.min(devicePixelRatio || 1, 2), W = cv.clientWidth, H = cv.clientHeight;
+  if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
+  const x = cv.getContext("2d"); x.setTransform(dpr, 0, 0, dpr, 0, 0); x.clearRect(0, 0, W, H);
+  return { x, W, H };
+}
+const line = (x, x0, y0, x1, y1, c, w = 1, dash) => { x.strokeStyle = c; x.lineWidth = w; x.setLineDash(dash || []); x.beginPath(); x.moveTo(x0, y0); x.lineTo(x1, y1); x.stroke(); x.setLineDash([]); };
+const text = (x, s, px, py, c, al = "left", f = "11px") => { x.font = `${f} ${tok.mono}`; x.fillStyle = c; x.textAlign = al; x.textBaseline = "middle"; x.fillText(s, px, py); };
+function label(x, s, px, py, c, al = "left") { // text with a panel-coloured backing so it reads over the drawing
+  x.font = `11px ${tok.mono}`; const w = x.measureText(s).width + 8, lx = al === "right" ? px - w : al === "center" ? px - w / 2 : px;
+  x.globalAlpha = 0.86; x.fillStyle = tok.stage; x.fillRect(lx, py - 8, w, 16); x.globalAlpha = 1; text(x, s, lx + 4, py, c);
+}
+
+function drawSide() {
+  const cv = $("side"), { x, W, H } = prep(cv), d = DEV[cur()], o = OBS[st.obs], E = edges(d), h = st.h, r = st.r;
+  const xmin = -4.2, xmax = clamp(r * 1.45 + 5, 12, 46), s = W / (xmax - xmin);
+  const groundY = H - Math.max(46, 1.6 * s), X = (m) => (m - xmin) * s, Y = (m) => groundY - m * s;
+  const isR = d.kind === "radar", col = isR ? tok.accent : tok.lidar, colSoft = isR ? tok["accent-soft"] : tok["lidar-soft"];
+  // Ground, with the hole cut into it.
+  x.fillStyle = tok.soil; x.fillRect(0, groundY, W, H - groundY);
+  if (o.hole) {
+    const Hh = o.hole; x.fillStyle = tok.stage; x.beginPath(); x.moveTo(X(r - Hh.L / 2), Y(0));
+    for (let m = r - Hh.L / 2; m <= r + Hh.L / 2 + 1e-6; m += 0.02) x.lineTo(X(m), Y(-holeDepthAt(Hh, m, r)));
+    x.closePath(); x.fill();
+    x.beginPath(); x.moveTo(X(r - Hh.L / 2), Y(0)); for (let m = r - Hh.L / 2; m <= r + Hh.L / 2 + 1e-6; m += 0.02) x.lineTo(X(m), Y(-holeDepthAt(Hh, m, r))); x.strokeStyle = tok.ink; x.lineWidth = 1.2; x.stroke();
+  }
+  line(x, 0, groundY, o.hole ? X(st.r - o.hole.L / 2) : W, groundY, tok.ink, 1.2);
+  if (o.hole) line(x, X(st.r + o.hole.L / 2), groundY, W, groundY, tok.ink, 1.2);
+  // Distance ticks along the ground; stop and decision marks from the front.
+  const tick = xmax > 30 ? 5 : xmax > 16 ? 2 : 1;
+  for (let m = 0; m <= xmax; m += tick) { line(x, X(m), groundY, X(m), groundY + 5, tok.muted); text(x, `${m}`, X(m), groundY + 14, tok.muted, "center", "10px"); }
+  text(x, "m", W - 6, groundY + 14, tok.muted, "right", "10px");
+  for (const [m, c, t] of [[STOP, tok.bad, "stop 3 m"], [DECIDE, tok.accent, "decide 6 m"]]) { line(x, X(m), groundY - 4, X(m), groundY + 26, c, 2); text(x, t, X(m) + 4, groundY + 30, c, "left", "10px"); }
+  // The beam / rows.
+  const far = (a) => { const t = Math.tan(a * D2R); if (t < 0) { const g = h / -t; if (g < xmax) return [g, 0]; } return [xmax, h + xmax * t]; };
+  const loEnd = far(E.lo), hiEnd = far(Math.min(E.hi, 80));
+  x.save(); x.beginPath(); x.rect(0, 0, W, groundY + (o.hole ? o.hole.d * s + 2 : 0)); x.clip();
+  if (isR || DEV[cur()].random) {
+    x.fillStyle = colSoft; x.beginPath(); x.moveTo(X(0), Y(h)); x.lineTo(X(loEnd[0]), Y(loEnd[1]));
+    if (loEnd[1] === 0) x.lineTo(X(xmax), Y(0));
+    x.lineTo(X(hiEnd[0]), Y(hiEnd[1])); if (hiEnd[0] < xmax) x.lineTo(X(xmax), Y(hiEnd[1])); x.closePath(); x.fill();
+  }
+  if (isR) {
+    line(x, X(0), Y(h), X(loEnd[0]), Y(loEnd[1]), col, 1.5); line(x, X(0), Y(h), X(hiEnd[0]), Y(hiEnd[1]), col, 1.5);
+  } else {
+    const rows = lidarRows(d);
+    const draws = rows || Array.from({ length: 70 }, (_, k) => (d.elMin + (d.elMax - d.elMin) * ((k * 0.618034) % 1)) - st.tilt);
+    for (const a of draws) {
+      if (a > 80) continue;
+      const t = Math.tan(a * D2R); let ex = xmax, ey = h + xmax * t, hit = false;
+      if (t < 0 && h / -t < xmax) { ex = h / -t; ey = 0; }
+      // Stop at the obstacle if the row reaches it there.
+      if (o.seg && (t >= 0 || h / -t >= r)) { const y = h + r * t; for (const [y0, y1] of o.seg) if (y >= y0 && y < y1 && ex >= r) { ex = r - (o.len || 0.3) / 2; ey = h + ex * t; hit = true; } }
+      if (o.hole && t < 0) { const g = h / -t; if (g > r - o.hole.L / 2 && g < r + o.hole.L / 2) { let xx = g; for (; xx < r + o.hole.L / 2; xx += 0.01) if (h - xx * -t <= -holeDepthAt(o.hole, xx, r)) break; ex = xx; ey = h + xx * t; hit = ey <= -0.15; } }
+      if (o.dust && ey < 3 && ex > r) { const tt = r; if (h + tt * t < o.dust.H) { ex = tt + 1.5; ey = h + ex * t; hit = true; } }
+      x.globalAlpha = hit ? 1 : 0.45; line(x, X(0), Y(h), X(ex), Y(ey), hit ? (o.dust ? tok.bad : tok.ok) : col, hit ? 1.4 : 0.7); x.globalAlpha = 1;
+      if (hit) { x.fillStyle = o.dust ? tok.bad : tok.ok; x.fillRect(X(ex) - 2, Y(ey) - 2, 4, 4); }
+    }
+  }
+  // Boresight and horizon, with the tilt angle.
+  line(x, X(0), Y(h), X(xmax), Y(h), tok.muted, 1, [3, 4]);
+  const tb = Math.tan(-st.tilt * D2R); line(x, X(0), Y(h), X(xmax), Y(h + xmax * tb), tok.ink, 1, [7, 4]);
+  x.restore();
+  if (st.tilt > 0) { x.strokeStyle = tok.ink; x.lineWidth = 1; x.beginPath(); x.arc(X(0), Y(h), 46, 0, st.tilt * D2R); x.stroke(); }
+  label(x, `tilt ${st.tilt}°`, X(0) + 52, Y(h) + 8 + st.tilt * 0.6, tok.ink);
+  label(x, `top edge ${E.hi > 0 ? "+" : ""}${fmt(E.hi, 1)}°`, Math.min(W - 6, X(Math.min(hiEnd[0], xmax * 0.55))), Y(h + Math.min(hiEnd[0], xmax * 0.55) * Math.tan(Math.min(E.hi, 80) * D2R)) - 12, col, "right");
+  const gf = groundFrom(E.lo, h);
+  if (gf < xmax) { label(x, `bottom edge ${fmt(E.lo, 1)}° · ground from ${fmt(gf)} m`, X(gf) + 6, groundY - 12, col); x.fillStyle = col; x.beginPath(); x.arc(X(gf), groundY, 4, 0, 7); x.fill(); }
+  else label(x, `bottom edge ${fmt(E.lo, 1)}° never meets the ground`, X(2), groundY - 12, col);
+  // The obstacle itself.
+  x.fillStyle = tok.ink; x.strokeStyle = tok.ink;
+  if (o.seg) {
+    const L = o.len || 0.3;
+    for (const [y0, y1, w] of o.seg) { const sw = st.obs === "deer" || st.obs === "dog" ? (y0 === 0 ? L : y1 - y0 < 0.3 && y0 > 0.5 ? 0.3 : L) : w; x.globalAlpha = st.obs === "tree" && y0 >= 2.4 ? 0.25 : 0.85; x.fillRect(X(r - sw / 2), Y(y1), sw * s, (y1 - y0) * s); }
+    x.globalAlpha = 1;
+    if (st.obs === "tree") { line(x, X(r - 3), Y(CLEAR_H), X(r + 3), Y(CLEAR_H), tok.muted, 1, [3, 3]); text(x, "2.3 m machine height", X(r + 3) + 4, Y(CLEAR_H), tok.muted, "left", "10px"); }
+  }
+  if (o.dust) { x.globalAlpha = 0.22; x.fillStyle = tok.muted; x.fillRect(X(r), Y(o.dust.H), o.dust.L * s, o.dust.H * s); x.globalAlpha = 1; text(x, "dust plume", X(r) + 6, Y(o.dust.H) + 10, tok.muted); }
+  // Radar: one return somewhere in a column, height unknown.
+  if (isR && !o.dust) {
+    const m = measure(cur(), st.obs, r); const lo = clamp(m.lo, -1, 20), hi = clamp(m.hi, -1, 20);
+    if (r <= xmax) { x.globalAlpha = 0.5; x.fillStyle = tok.accent; x.fillRect(X(r) - 3, Y(hi), 6, (hi - lo) * s); x.globalAlpha = 1; label(x, "radar: a return anywhere in this column", X(r) + 8, Y(hi) + 10, tok.accent); }
+  }
+  // The machine: body, wheels, mast, unit.
+  const RA = -2.28, FA = RA + 1.35;
+  x.globalAlpha = 0.9; x.fillStyle = tok.ink;
+  x.fillRect(X(RA - 1.07), Y(1.5), (3.41) * s, 1.2 * s);
+  x.fillRect(X(-0.12), Y(h), 0.08 * s, (h - 1.5) * s);
+  x.globalAlpha = 1;
+  for (const ax of [RA, FA]) { x.beginPath(); x.arc(X(ax), Y(0.6), 0.6 * s, 0, 7); x.fillStyle = tok.stage; x.fill(); x.lineWidth = 2; x.strokeStyle = tok.ink; x.stroke(); }
+  x.fillStyle = col; x.fillRect(X(0) - 6, Y(h) - 5, 12, 10);
+  label(x, `${fmt(h, 2)} m`, X(-0.2), Y(h / 2 + 0.75), tok.muted, "right");
+  $("vt-side").textContent = `Side view · ${d.short} · 1:1 scale`;
+}
+
+function drawTop() {
+  const cv = $("top"), { x, W, H } = prep(cv), d = DEV[cur()], o = OBS[st.obs], r = st.r;
+  const xmin = -1.5, xmax = clamp(r * 1.45 + 5, 12, 46), s = W / (xmax - xmin), cy = H / 2, X = (m) => (m - xmin) * s, Y = (l) => cy + l * s;
+  const isR = d.kind === "radar", col = isR ? tok.accent : tok.lidar;
+  line(x, X(0), cy, W, cy, tok.muted, 1, [3, 4]);
+  // Obstacle footprint.
+  const w = o.seg ? Math.max(...o.seg.map((g) => g[2])) : o.hole ? o.hole.W : 8, L = o.seg ? (o.len || 0.3) : o.hole ? o.hole.L : o.dust.L;
+  x.globalAlpha = o.dust ? 0.2 : 0.8; x.fillStyle = o.hole ? tok.soil : tok.ink; x.fillRect(X(r - (o.dust ? 0 : L / 2)), Y(-w / 2), L * s, w * s); x.globalAlpha = 1;
+  if (o.hole) { x.strokeStyle = tok.ink; x.strokeRect(X(r - L / 2), Y(-w / 2), L * s, w * s); }
+  const half = (isR ? d.az : 120) / 2, step = isR ? d.azRes : d.random ? 0 : d.azRes;
+  if (isR) {
+    const k = Math.round(0 / d.azRes), a0 = (k - 0.5) * d.azRes * D2R, a1 = (k + 0.5) * d.azRes * D2R;
+    x.fillStyle = tok["accent-soft"]; x.beginPath(); x.moveTo(X(0), cy); x.lineTo(X(60 * Math.cos(a0)), Y(60 * Math.sin(a0))); x.lineTo(X(60 * Math.cos(a1)), Y(60 * Math.sin(a1))); x.closePath(); x.fill();
+    for (let a = -half; a <= half + 1e-6; a += d.azRes) { const rad = (Math.round(a / d.azRes) - 0.5) * d.azRes * D2R; if (Math.abs(rad / D2R) > half) continue; line(x, X(0), cy, X(60 * Math.cos(rad)), Y(60 * Math.sin(rad)), col, 1); }
+    const cw = 2 * r * Math.tan(d.azRes / 2 * D2R);
+    line(x, X(r), Y(-cw / 2), X(r), Y(cw / 2), tok.accent, 3);
+    label(x, `one cell at ${fmt(r)} m: ${fmt(cw)} m wide`, Math.min(X(r) + 8, W - 250), H - 14, tok.accent);
+  } else if (!d.random) {
+    const pxPer = r * d.azRes * D2R * s, every = Math.max(1, Math.ceil(3 / Math.max(pxPer, 0.01)));
+    for (let k = -Math.floor(60 / d.azRes); k <= Math.floor(60 / d.azRes); k += every) { const a = k * d.azRes * D2R; x.globalAlpha = 0.35; line(x, X(0), cy, X(60 * Math.cos(a)), Y(60 * Math.sin(a)), col, 0.6); }
+    x.globalAlpha = 1;
+    const n = Math.floor(w / (r * d.azRes * D2R));
+    label(x, `${d.azRes}° columns: ${fmt(r * d.azRes * D2R * 100, 0)} cm apart at ${fmt(r)} m · ${n} columns on the obstacle${every > 1 ? ` · every ${every}th drawn` : ""}`, 10, H - 14, tok.lidar);
+  } else {
+    let seed = 7; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    x.fillStyle = tok.lidar; for (let k = 0; k < 900; k++) { const a = (rnd() - 0.5) * 120 * D2R, rr = 1 + rnd() * (xmax - 1); x.globalAlpha = 0.5; x.fillRect(X(rr * Math.cos(a)) - 1, Y(rr * Math.sin(a)) - 1, 2, 2); }
+    x.globalAlpha = 1; label(x, "random scan: a density, not columns", 10, H - 14, tok.lidar);
+  }
+  x.fillStyle = col; x.fillRect(X(0) - 5, cy - 5, 10, 10);
+  $("vt-top").textContent = `From above · ${isR ? "width of one cell" : "columns"}`;
+}
+
+function drawChart() {
+  const cv = $("chart"), { x, W, H } = prep(cv), dk = cur(), d = DEV[dk], o = OBS[st.obs], isR = d.kind === "radar";
+  const pl = 52, pr = 12, pt = 10, pb = 26, iw = W - pl - pr, ih = H - pt - pb, RM = 45;
+  const X = (m) => pl + m / RM * iw;
+  const yMin = isR ? -20 : 0, yMax = isR ? 50 : 4;                 // radar: dB; LiDAR: log10 of points
+  const Yv = (v) => pt + (1 - (clamp(v, yMin, yMax) - yMin) / (yMax - yMin)) * ih;
+  for (let m = 0; m <= RM; m += 5) { line(x, X(m), pt, X(m), pt + ih, tok.line); text(x, `${m}`, X(m), H - 10, tok.muted, "center", "10px"); }
+  text(x, "m", W - 4, H - 10, tok.muted, "right", "10px");
+  const ticks = isR ? [-20, -10, 0, 10, 20, 30, 40, 50] : [0, 1, 2, 3, 4];
+  for (const v of ticks) { line(x, pl, Yv(v), pl + iw, Yv(v), tok.line); text(x, isR ? `${v} dB` : `${10 ** v}`, pl - 6, Yv(v), tok.muted, "right", "10px"); }
+  // Stop and decision distances.
+  x.fillStyle = tok["bad-soft"] || "rgba(194,65,45,.13)"; x.fillRect(X(0), pt, X(STOP) - X(0), ih);
+  line(x, X(DECIDE), pt, X(DECIDE), pt + ih, tok.accent, 1.5, [4, 3]); text(x, "decide", X(DECIDE) + 4, pt + 8, tok.accent, "left", "10px");
+  text(x, "stop", X(STOP / 2), pt + 8, tok.bad, "center", "10px");
+  // Threshold.
+  const need = isR ? (st.moving && o.moves ? 1 : 3) : 3, thr = isR ? 10 * Math.log10(need) : Math.log10(need);
+  line(x, pl, Yv(thr), pl + iw, Yv(thr), tok.ink, 1.2, [6, 4]); text(x, isR ? (need === 1 ? "threshold · moving" : "threshold · still") : "threshold · 3 points", pl + iw - 4, Yv(thr) - 9, tok.ink, "right", "10px");
+  if (o.dust && isR) { text(x, "radar doesn't see dust: no signal, and none is needed", pl + iw / 2, pt + ih / 2, tok.muted, "center", "12px"); }
+  else {
+    // Curve with an area fill.
+    const pts = [];
+    for (let m = 0.5; m <= RM; m += 0.25) { const mm = measure(dk, st.obs, m); const v = isR ? (mm.sig > 0 ? 10 * Math.log10(mm.sig) : yMin - 1) : (mm.sig > 0 ? Math.log10(o.seg ? Math.max(mm.counted ?? mm.sig, 0.0001) : mm.sig) : yMin - 1); pts.push([m, v]); }
+    const c = isR ? tok.accent : tok.lidar;
+    x.beginPath(); x.moveTo(X(pts[0][0]), Yv(yMin)); for (const [m, v] of pts) x.lineTo(X(m), Yv(v)); x.lineTo(X(pts[pts.length - 1][0]), Yv(yMin)); x.closePath();
+    x.globalAlpha = 0.16; x.fillStyle = c; x.fill(); x.globalAlpha = 1;
+    x.beginPath(); pts.forEach(([m, v], i) => (i ? x.lineTo(X(m), Yv(v)) : x.moveTo(X(m), Yv(v)))); x.strokeStyle = c; x.lineWidth = 2; x.stroke();
+    // Current distance.
+    const cur0 = measure(dk, st.obs, st.r), v0 = isR ? (cur0.sig > 0 ? 10 * Math.log10(cur0.sig) : yMin) : (cur0.sig > 0 ? Math.log10(o.seg ? Math.max(cur0.counted, 0.0001) : cur0.sig) : yMin);
+    line(x, X(st.r), pt, X(st.r), pt + ih, tok.muted, 1);
+    x.fillStyle = c; x.beginPath(); x.arc(X(st.r), Yv(v0), 4.5, 0, 7); x.fill();
+  }
+  $("ch-t").textContent = `${o.name} · ${d.short}: ${isR ? "signal against distance" : "points on the obstacle against distance"}`;
+  $("ch-l").innerHTML = `<span><i style="background:${isR ? tok.accent : tok.lidar}"></i>${isR ? "signal against a man at the edge of range" : o.seg ? "points below the machine's height" : o.hole ? "points below ground" : "false echoes"}</span><span><i style="background:${tok.ink}"></i>threshold</span><span><i style="background:${tok.accent}"></i>decide at 6 m</span>`;
+}
+
+// ---- Readouts, terms, cards.
+const cur = () => (st.show === "radar" ? st.radar : st.lidar);
+function tiles() {
+  const dk = cur(), d = DEV[dk], o = OBS[st.obs], E = edges(d), m = measure(dk, st.obs, st.r), isR = d.kind === "radar";
+  const gf = groundFrom(E.lo, st.h);
+  $("t-g").textContent = gf === Infinity ? "never" : `${fmt(gf)} m`;
+  $("t-g2").textContent = `bottom edge ${fmt(E.lo, 1)}° = −${isR ? d.el / 2 : -d.elMin}° ${st.tilt ? "− " + st.tilt + "° of tilt" : ""}`.replace("−-", "+");
+  const top = st.h + st.r * Math.tan(Math.min(E.hi, 80) * D2R);
+  $("t-u-l").textContent = `Top edge at ${fmt(st.r)} m`;
+  $("t-u").textContent = E.hi >= 80 ? "above everything" : `${fmt(top)} m up`;
+  $("t-u2").textContent = `${E.hi >= 0 ? "+" : ""}${fmt(E.hi, 1)}° from the horizon`;
+  if (isR) {
+    $("t-a-l").textContent = "Takes in of the obstacle";
+    $("t-a").textContent = o.dust ? "nothing" : m.inView ? `${fmt(m.area, 2)} m²` : "outside the beam";
+    $("t-a2").textContent = o.dust ? "a 4–5 mm wave goes through dust" : `the beam there spans ${fmt(Math.max(m.lo, o.hole ? -o.hole.d : 0))} to ${fmt(m.hi)} m up`;
+    $("t-s-l").textContent = "Signal";
+    $("t-s").textContent = o.dust ? "–" : m.sig > 0 ? `${fmt(10 * Math.log10(m.sig), 1)} dB` : "0";
+    $("t-s2").textContent = o.dust ? "" : `threshold ${m.need === 1 ? "0 dB (moving)" : "+4.8 dB (still)"}`;
+  } else {
+    $("t-a-l").textContent = o.hole ? "Rows into the hole" : o.dust ? "Rows through the plume" : "Rows on the obstacle";
+    $("t-a").textContent = d.random ? "random" : `${m.rows ?? 0}`;
+    $("t-a2").textContent = o.hole ? `${m.deep ?? 0} reach 15 cm below ground` : d.random ? "a density, not rows" : `rows ${fmt((d.elMax - d.elMin) / (d.rows - 1), 2)}° apart`;
+    $("t-s-l").textContent = o.dust ? "False echoes" : "Points on the obstacle";
+    $("t-s").textContent = fmt(o.seg ? m.counted : m.sig, 0);
+    $("t-s2").textContent = o.seg && m.crownPts > 0.5 ? `+${fmt(m.crownPts, 0)} above 2.3 m, not counted` : "threshold 3 points";
+  }
+  const v = verdict(dk, st.obs), el = $("t-v");
+  el.dataset.k = v.k; el.querySelector("span").textContent = v.t; $("t-v2").textContent = v.s;
+}
+function terms() {
+  const r = DEV[st.radar], l = DEV[st.lidar], Er = edges(r), El = edges(l), h = st.h, R = st.r;
+  const lrs = l.random ? null : (l.elMax - l.elMin) / (l.rows - 1);
+  const items = [
+    ["Vertical field", `${r.short}: ${r.el}° (±${r.el / 2}° about its axis). ${l.short}: ${l.elMin}° to ${l.elMax}°.`, "field = top edge − bottom edge", "How much the sensor takes in up and down. Tilt doesn't change it; it only moves it."],
+    ["Tilt", `${st.tilt}° down: the axis looks ${st.tilt}° below the horizon.`, "edge = angle in the sensor − tilt", "Turns the whole wedge. You get the ground closer and lose height far away."],
+    ["Bottom edge and the ground", `${r.short}: ${fmt(Er.lo, 1)}°, ground from ${fmt(groundFrom(Er.lo, h))} m.`, "distance = height / tan(|bottom edge|)", "Anything below this line and nearer than that distance the sensor doesn't see: not a hole, not a dog."],
+    ["Top edge", `${r.short} at ${fmt(R)} m: up to ${fmt(h + R * Math.tan(Er.hi * D2R))} m.`, "height = h + r · tan(top edge)", "If it is below a man's head at the distance you need, you lose part of him."],
+    ["Cell width", `${r.short} ${r.azRes}° → ${fmt(2 * R * Math.tan(r.azRes / 2 * D2R))} m at ${fmt(R)} m.`, "width = r · angle (in radians)", "Radar doesn't know where in the cell a return is. A wide cell lumps a man together with the plants beside him."],
+    ["Radar without height", `IWR6843ISK has 2 rows of antennas: a 57° elevation cell, wider than its 30° field.`, "one cell in height = no height", "A return could be a branch over the track or a dog on the ground. That's why it is drawn as a column, not a point."],
+    ["LiDAR rows", l.random ? `${l.short}: random, ~${fmt(density(l) * D2R * D2R, 2)} points per square degree.` : `${l.short}: ${l.rows} rows ${fmt(lrs, 2)}° apart; on the ground at ${fmt(DECIDE)} m they are ${fmt(DECIDE * DECIDE / h * lrs * D2R, 2)} m apart.`, "spacing on the ground ≈ r² / h · row spacing", "Far out and low down, rows land sparsely on the ground. A small hole slips between two rows."],
+    ["Signal and distance", `Radar falls off with r⁴: at twice the distance, 16× weaker. LiDAR with r²: 4× weaker.`, "radar ∝ σ / r⁴ · LiDAR ∝ reflectivity / r²", "That's why radar sees a dog (a small target) much nearer than a man."],
+  ];
+  $("terms").innerHTML = items.map(([t, ex, f, p]) => `<div class="card term"><h3>${t}</h3><code>${f}</code><p class="ex">${ex}</p><p>${p}</p></div>`).join("");
+}
+const PHYS = {
+  man: { r: "A body reflects the radar wave well. If he walks, radar picks him out by speed even in a wide cell; if he stands still, he has to be stronger than the ground around him.", l: "Tens of points on the body, at their true height. Fog and dust shorten the range." },
+  deer: { r: "Side on it is bigger than a man and moves fast, so radar catches it by its speed.", l: "A body on legs: the legs are thin and sometimes fall between columns; the body doesn't." },
+  dog: { r: "A small target: the signal falls with r⁴, so radar sees it only close in. It is low, so it enters the beam only once the bottom edge comes down far enough.", l: "Low: it needs rows near the ground. Sensors that mostly look upward (JT128, Mid-360) lose it close in." },
+  tree: { r: "The trunk reflects strongly (wet wood). The crown over the track returns with no height, so radar stops even under a branch. Tilt takes the crown out of the beam.", l: "Sees the trunk and the crown and knows the crown is above 2.3 m, so it stops only for the trunk." },
+  hole: { r: "A hole returns nothing. Only the far sloping wall shows, weakly and late, and nothing says it is a hole rather than a clod.", l: "Rays fall into the hole and return points below ground, but only if rows come down steeply near the machine. Here tilt decides it." },
+  ditch: { r: "The wide far bank returns more strongly than a hole, but again as a still obstacle with no height.", l: "Big: several rows fall into it, so even a sensor with sparse rows sees it." },
+  dust: { r: "A 4–5 mm wave goes through dust; radar doesn't stop, and shouldn't.", l: "Rays stop in the plume (0.35 per metre) and half come back as false echoes. The machine stops in front of an empty cloud." },
+};
+function cards() {
+  const r = DEV[st.radar], l = DEV[st.lidar];
+  $("obs").innerHTML = Object.entries(OBS).map(([k, o]) => {
+    const vr = verdict(st.radar, k), vl = verdict(st.lidar, k);
+    return `<button type="button" class="card obs-card" data-k="${k}" aria-pressed="${k === st.obs}">
+      <div><h3>${o.name}</h3><div class="sz">${o.sz}</div></div>
+      <div class="row2">
+        <div class="sens"><b class="r">Radar</b><div><span class="pill" data-k="${vr.k}"><i></i>${vr.t}</span> <span class="sz">${r.short} · ${vr.s}</span><p>${PHYS[k].r}</p></div></div>
+        <div class="sens"><b class="l">LiDAR</b><div><span class="pill" data-k="${vl.k}"><i></i>${vl.t}</span> <span class="sz">${l.short} · ${vl.s}</span><p>${PHYS[k].l}</p></div></div>
+      </div></button>`;
+  }).join("");
+  $("obs").querySelectorAll(".obs-card").forEach((b) => b.addEventListener("click", () => { st.obs = b.dataset.k; render(); $("side").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "center" }); }));
+}
+
+// ---- Controls.
+function segs() {
+  const mk = (el, keys, pressed, alt) => { $(el).innerHTML = keys.map((k) => `<button type="button" data-k="${k}" aria-pressed="${k === pressed}" class="${k === alt ? "alt" : ""}" title="${DEV[k] ? DEV[k].note : ""}">${DEV[k] ? DEV[k].short : OBS[k].name}</button>`).join(""); };
+  mk("s-radar", ["iwr", "ods", "aop", "iwrl", "awr18", "awr", "sr75", "o79", "ars408", "drv169", "hugin", "ars"], st.show === "radar" ? st.radar : null, st.show === "radar" ? null : st.radar);
+  mk("s-lidar", ["airy", "mid", "jt16", "jt128"], st.show === "lidar" ? st.lidar : null, st.show === "lidar" ? null : st.lidar);
+  mk("s-obs", Object.keys(OBS), st.obs);
+  $("s-radar").querySelectorAll("button").forEach((b) => b.addEventListener("click", () => { st.show = "radar"; st.radar = b.dataset.k; render(); }));
+  $("s-lidar").querySelectorAll("button").forEach((b) => b.addEventListener("click", () => { st.show = "lidar"; st.lidar = b.dataset.k; render(); }));
+  $("s-obs").querySelectorAll("button").forEach((b) => b.addEventListener("click", () => { st.obs = b.dataset.k; render(); }));
+}
+const fill = (el) => el.style.setProperty("--p", ((el.value - el.min) / (el.max - el.min) * 100) + "%");
+for (const [id, key] of [["in-h", "h"], ["in-t", "tilt"], ["in-r", "r"]]) $(id).addEventListener("input", (e) => { st[key] = +e.target.value; render(); });
+$("in-mv").addEventListener("change", (e) => { st.moving = e.target.checked; render(); });
+document.querySelectorAll(".chip[data-h]").forEach((b) => b.addEventListener("click", () => { st.h = +b.dataset.h; $("in-h").value = st.h; render(); }));
+
+function render() {
+  $("o-h").textContent = `${fmt(st.h, 2)} m`; $("o-t").textContent = `${st.tilt}°`; $("o-r").textContent = `${fmt(st.r)} m`;
+  ["in-h", "in-t", "in-r"].forEach((id) => fill($(id)));
+  const mv = OBS[st.obs].moves && st.show === "radar";
+  $("in-mv").disabled = !mv; $("mv-l").setAttribute("aria-disabled", String(!mv));
+  segs(); drawSide(); drawTop(); drawChart(); tiles(); terms(); cards();
+}
+function repaint() { readTokens(); render(); }
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", repaint);
+new MutationObserver(repaint).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+let rz = 0; new ResizeObserver(() => { cancelAnimationFrame(rz); rz = requestAnimationFrame(() => { drawSide(); drawTop(); drawChart(); }); }).observe(document.body);
+repaint();
+</script>
